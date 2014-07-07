@@ -1,0 +1,160 @@
+init_by_lua '
+	redis  = require "resty.redis"
+';
+rewrite_by_lua_no_postpone on;
+
+server {
+	listen 443 ssl;
+	server_name redis.tvip.sandbox.bbc.co.uk;
+
+	ssl on;
+        ssl_certificate ssl/server.crt;
+        ssl_certificate_key ssl/server.key;
+        ssl_verify_client on;
+        ssl_client_certificate ssl/ca.pem;
+        ssl_verify_depth 3;
+
+        ssl_session_timeout 5m;
+	add_header Content-Type text/plain;
+
+	location /update {
+		content_by_lua '
+		        local red    = redis:new()
+			red:set_timeout(1000)
+
+			local ok, err = red:connect("127.0.0.1", 6379)
+	                if not ok then
+        	            ngx.say("failed to connect: ", err)
+                	    ngx.exit(500);
+	                end
+					
+			local args = ngx.req.get_uri_args()
+			
+			local newUrl = args["url"]
+			local name = args["name"]
+			
+			ok, err = red:set(string.format("proxy.custom.%s",name), newUrl)
+			if not ok then
+		                ngx.say("failed to set new url: ", err)
+				return
+		        end
+	
+			local res, err = red:get(string.format("proxy.custom.%s",name))
+	                if not res then
+        	            ngx.say("failed to verify URL: ", err)
+                	    ngx.exit(500);
+	                end
+
+			ngx.exit(200);
+		';
+	}
+		
+	location /delete {
+        	content_by_lua '
+                        local red    = redis:new()
+                        red:set_timeout(1000)
+
+                        local ok, err = red:connect("127.0.0.1", 6379)
+                        if not ok then
+                            ngx.say("failed to connect: ", err)
+                            return
+                        end
+
+                        local args = ngx.req.get_uri_args()
+
+                        local name = args["name"]
+
+                        ok, err = red:del(string.format("proxy.custom.%s",name))
+                        if not ok then
+                                ngx.say("failed to delete URL", err)
+                                ngx.exit(500);
+                        end
+
+                        ngx.status = 200
+                        ngx.header["content-type"] = "text/html"
+                ';
+        }
+
+	location /show {
+		content_by_lua '
+			local red    = redis:new()
+                        red:set_timeout(1000)
+
+                        local ok, err = red:connect("127.0.0.1", 6379)
+                        if not ok then
+                            ngx.say("failed to connect: ", err)
+                            return
+                        end
+
+			local keys = red:keys("proxy.custom.*")
+
+			if keys == ngx.null then
+				ngx.log(ngx.ALERT, "Could not fetch keys for proxy.custom.*")			
+			end
+
+			local values = {}
+
+			for i,key in pairs(keys) do
+				values[key] = red:get(key)
+				ngx.say(string.format("%s=%s", key, values[key]))
+			end
+
+		';	
+	}
+}
+server {
+  listen 80;
+  server_name ~(?<box_name>.*)\.tvip\.sandbox\.bbc\.co\.uk;
+  server_name_in_redirect off;
+  port_in_redirect off;
+  root /var/www/html;
+  resolver 8.8.8.8;
+
+  set $upstream false;
+  location / {
+    set $route "";
+
+    rewrite_by_lua '
+      -- load global route cache into current request scope
+      -- by default vars are not shared between requests
+
+      -- try cached route first
+      local red    = redis:new()
+
+      red:connect("127.0.0.1", 6379)
+      route = red:get(string.format("proxy.custom.%s", ngx.var.box_name))
+
+      -- fallback to redis for lookups
+      if route ~= ngx.null then
+        ngx.log(ngx.ALERT, string.format("Proxying back to route: %s", route))
+        ngx.var.upstream = route
+      else
+        ngx.status = 404
+        ngx.log(ngx.ALERT, "No Route Found")
+        ngx.req.set_uri("/404.html")
+      end
+    ';
+
+    error_page 418 = @proxy;
+    if ($upstream != false) {
+      return 418;
+    }
+  }
+
+  location @proxy {
+    proxy_buffering             off;
+    proxy_connect_timeout       10;
+    proxy_send_timeout          30;
+    proxy_read_timeout          30;
+    proxy_buffer_size           256k;
+    proxy_buffers           32  256k;
+    proxy_busy_buffers_size 256k;
+    proxy_redirect http://$upstream http://$host;
+    proxy_set_header	    Host $upstream;
+    
+    proxy_pass http://$upstream$uri;
+  }
+}
+
+
+
