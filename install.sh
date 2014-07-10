@@ -7,7 +7,8 @@ fi
 
 apt-get install redis-server;
 
-ln -s $(cd "$(dirname "$0")" && pwd)/dyn-proxy /etc/nginx/sites-enabled/01-dyn-proxy;
+mv /etc/nginx/nginx.conf /etc/nginx/nginx.conf.orig;
+ln -s $(cd "$(dirname "$0")" && pwd)/dyn-proxy /etc/nginx/nginx.conf;
 
 ./gen-keys redis.tvip.sandbox.bbc.co.uk;
 

@@ -1,3 +1,38 @@
+
+#user  nobody;
+worker_processes  1;
+
+#error_log  logs/error.log;
+#error_log  logs/error.log  notice;
+#error_log  logs/error.log  info;
+
+#pid        logs/nginx.pid;
+
+
+events {
+    worker_connections  1024;
+}
+
+
+http {
+    include       mime.types;
+    default_type  application/octet-stream;
+
+    #log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+    #                  '$status $body_bytes_sent "$http_referer" '
+    #                  '"$http_user_agent" "$http_x_forwarded_for"';
+
+    #access_log  logs/access.log  main;
+
+    sendfile        on;
+    #tcp_nopush     on;
+
+    #keepalive_timeout  0;
+    keepalive_timeout  65;
+
+    gzip  on;
+
+
 init_by_lua '
 	redis  = require "resty.redis"
 ';
@@ -101,7 +136,9 @@ server {
 
 		';	
 	}
-}
+} # Server Port 443
+
+
 server {
   listen 80;
   server_name ~(?<box_name>.*)\.tvip\.sandbox\.bbc\.co\.uk;
@@ -154,7 +191,8 @@ server {
     
     proxy_pass http://$upstream;
   }
-}
+} # /Server Port 80
 
 
+} # /HTTP
 
