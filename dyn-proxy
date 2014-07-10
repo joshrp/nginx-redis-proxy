@@ -152,7 +152,7 @@ server {
     proxy_redirect http://$upstream http://$host;
     proxy_set_header	    Host $upstream;
     
-    proxy_pass http://$upstream$uri;
+    proxy_pass http://$upstream;
   }
 }
 
