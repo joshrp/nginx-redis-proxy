@@ -64,9 +64,14 @@ server {
 	                end
 					
 			local args = ngx.req.get_uri_args()
-			
+						
 			local newUrl = args["url"]
 			local name = args["name"]
+			
+			if not name:find("^[%w._%-]+$") then
+				ngx.say("Invalid alias name. Can only contain A-Z, 0-9, -, _ and .")
+				ngx.exit(400);
+			end
 			
 			ok, err = red:set(string.format("proxy.custom.%s",name), newUrl)
 			if not ok then
